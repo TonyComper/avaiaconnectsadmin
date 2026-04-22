@@ -4,6 +4,7 @@
 import React from "react";
 import { useAuth } from "@/components/AuthProvider";
 import AssistantDashboardVapi from "@/components/AssistantDashboardVapi";
+const DASHBOARD_VERSION = "v1.3.0";
 
 export default function DashboardPage() {
   const { loading, profile, error, signOutUser } = useAuth();
@@ -47,16 +48,22 @@ export default function DashboardPage() {
     <div className="p-0">
       {/* Header with restaurant name + sign out */}
       <div className="flex items-center justify-between p-6 border-b bg-white">
-        <div className="text-2xl font-bold">
-          {profile.restaurantName || profile.name || "—"}
+        <div>
+          <div className="text-2xl font-bold">
+            {profile.restaurantName || profile.name || "—"}
+          </div>
+          <div className="text-xs text-gray-400">
+            {DASHBOARD_VERSION}
+          </div>
         </div>
-        <button
-          onClick={signOutUser}
-          className="text-sm px-4 py-2 rounded-lg border bg-gray-50 hover:bg-gray-100"
-        >
-          Sign Out
-        </button>
-      </div>
+
+  <button
+    onClick={signOutUser}
+    className="text-sm px-4 py-2 rounded-lg border bg-gray-50 hover:bg-gray-100"
+  >
+    Sign Out
+  </button>
+</div>
 
       <AssistantDashboardVapi assistantId={profile.assistantId} />
     </div>
