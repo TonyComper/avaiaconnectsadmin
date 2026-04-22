@@ -65,7 +65,9 @@ const { fetchUberEatsReviews } = require("./lib/fetchUberEatsReviews");
 const { waitForApifyRun } = require("./lib/waitForApifyRun");
 const { getApifyDatasetItems } = require("./lib/getApifyDatasetItems");
 const { getNormalizedUberEatsReviews } = require("./lib/getNormalizedUberEatsReviews");
+const crypto = require("crypto");
 const { normalizeUberEatsReviews } = require("./lib/normalizeUberEatsReviews");
+const { parseOpenTableUrl } = require("./lib/parseOpenTableUrl");
 const cors = require("cors")({ origin: true });
 
 if (!admin.apps.length) admin.initializeApp();
@@ -1833,6 +1835,57 @@ if (nextPageToken) params.set("next_page_token", nextPageToken);
   return { reviews: out, pagesFetched: page };
 }
 
+
+/* --------------------------- SerpAPI Fetch Open Table Reviews) --------------------------- */
+
+async function fetchSerpApiOpenTableReviews({
+  rid,
+  openTableDomain = "www.opentable.com",
+  apiKey,
+  page = 1,
+}) {
+  try {
+    if (!rid || !apiKey) {
+      return { ok: false, reviews: [], error: "Missing rid or apiKey" };
+    }
+
+    const params = {
+      engine: "open_table_reviews",
+      rid,
+      open_table_domain: openTableDomain,
+      api_key: apiKey,
+      page,
+    };
+
+    const { data } = await axios.get("https://serpapi.com/search.json", {
+      params,
+      timeout: 60000,
+    });
+
+    const reviews = Array.isArray(data?.reviews) ? data.reviews : [];
+
+    return {
+      ok: true,
+      reviews,
+      meta: {
+        page: data?.search_information?.page ?? page,
+        totalPages: data?.search_information?.total_pages ?? null,
+        summary: data?.reviews_summary ?? null,
+      },
+      raw: data,
+    };
+  } catch (err) {
+    console.error("fetchSerpApiOpenTableReviews error:", err?.response?.data || err?.message || err);
+    return {
+      ok: false,
+      reviews: [],
+      error: err?.response?.data || err?.message || "OpenTable fetch failed",
+    };
+  }
+}
+
+/* --------------------------- SerpAPI Place Signals--------------------------- */
+
 async function fetchSerpApiPlaceSignals({
   apiKey,
   placeId = "",
@@ -1888,6 +1941,8 @@ async function fetchSerpApiPlaceSignals({
     raw: placeResults,
   };
 }
+
+
 
 async function resolveSerpPlaceIdsFromGooglePlaceId({
   googlePlaceId,
@@ -3127,6 +3182,242 @@ exports.rebuildRestaurantReputationPhase1 = onRequest(
   }
 );
 
+/* --------------------------- Review Response Helpers --------------------------- */
+
+function normalizeReviewText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function isNegativeReview(review) {
+  const rating = Number(review?.rating || 0);
+  return rating === 1 || rating === 2;
+}
+
+function makeStableReviewId(review, idx = 0) {
+  const existing =
+    review?.reviewId ||
+    review?.id ||
+    review?.review_id ||
+    review?.reviewToken ||
+    "";
+
+  if (existing) return String(existing);
+
+  const raw = JSON.stringify({
+    source: review?.source || "google",
+    rating: Number(review?.rating || 0),
+    text: normalizeReviewText(review?.text || review?.snippet || ""),
+    date:
+      review?.date ||
+      review?.publishedAt ||
+      review?.published_at ||
+      review?.time ||
+      "",
+    idx,
+  });
+
+  return "review_" + crypto.createHash("md5").update(raw).digest("hex");
+}
+
+function detectIssueTagsForReview(reviewText) {
+  const text = normalizeReviewText(reviewText).toLowerCase();
+  if (!text) return [];
+
+  const tags = new Set();
+
+  if (/(cold|burnt|raw|stale|bland|salty|taste|flavour|flavor|portion|quality|fresh)/i.test(text)) {
+    tags.add("FOOD_QUALITY");
+  }
+
+  if (/(rude|staff|service|ignored|attitude|unfriendly|server|cashier)/i.test(text)) {
+    tags.add("STAFF_SERVICE");
+  }
+
+  if (/(late|slow|wait|waiting|delay|took forever|never arrived)/i.test(text)) {
+    tags.add("SPEED_OF_SERVICE");
+  }
+
+  if (/(wrong order|missing|forgot|incorrect|mixed up)/i.test(text)) {
+    tags.add("ORDER_ACCURACY");
+  }
+
+  if (/(dirty|clean|messy|washroom|bathroom|table|floor)/i.test(text)) {
+    tags.add("CLEANLINESS");
+  }
+
+  if (/(expensive|overpriced|price|value|cost)/i.test(text)) {
+    tags.add("VALUE");
+  }
+
+  if (/(delivery|driver|courier|pickup|pick up|takeout|take-out)/i.test(text)) {
+    tags.add("DELIVERY_OR_PICKUP");
+  }
+
+  return Array.from(tags).slice(0, 5);
+}
+
+async function buildReviewResponses({
+  restaurantCode,
+  restaurantDisplayName,
+  reviews,
+  apiKey,
+  db,
+}) {
+  const now = Date.now();
+  const allReviews = Array.isArray(reviews) ? reviews : [];
+
+const negativeReviews = allReviews
+  .filter((r) => isNegativeReview(r))
+  .filter((r) => {
+    const hasResponseFlag = r?.hasResponse === true;
+    const hasResponseText = String(r?.responseText || "").trim().length > 0;
+    return !hasResponseFlag && !hasResponseText;
+  })
+    .map((review, idx) => {
+      const text = normalizeReviewText(review?.text || review?.snippet || "");
+      const rating = Number(review?.rating || 0);
+      const authorName =
+        review?.user?.name ||
+        review?.user?.username ||
+        review?.authorName ||
+        review?.author ||
+        review?.reviewer ||
+        "Customer";
+
+return {
+  reviewId: makeStableReviewId(review, idx),
+  source: String(review?.source || "google"),
+  rating,
+  text,
+  authorName,
+  date:
+    review?.date ||
+   review?.isoDate ||
+    review?.publishedAt ||
+    review?.published_at ||
+    review?.time ||
+    "",
+  dateMs:
+    review?.dateMs ||
+    (review?.isoDate ? new Date(review.isoDate).getTime() : null) ||
+    (review?.time ? new Date(review.time).getTime() : null) ||
+    null,
+    issueTags: detectIssueTagsForReview(text),
+    rawReview: review,
+};
+    })
+    .filter((r) => r.text);
+
+  const items = [];
+
+  for (const review of negativeReviews) {
+    let draftResponse = "";
+
+    try {
+      const prompt = `
+You are writing a public-facing response from a restaurant manager to a negative customer review.
+
+Rules:
+- Keep the tone calm, professional, warm, and brand-neutral
+- Do not be defensive
+- Do not argue with the customer
+- Acknowledge the issue specifically
+- Apologize when appropriate
+- Keep it concise: about 70 to 130 words
+- Do not offer legal admissions
+- Do not promise refunds or compensation
+- Optionally invite the guest to continue the conversation offline
+- Do not mention internal systems, AI, or classification
+- Must work for any restaurant type
+
+Restaurant name:
+${restaurantDisplayName || restaurantCode || "the restaurant"}
+
+Review source:
+${review.source}
+
+Review rating:
+${review.rating} star
+
+Detected issue tags:
+${(review.issueTags || []).join(", ") || "none"}
+
+Review date:
+${review.date || "unknown"}
+
+Customer review:
+"""
+${review.text}
+"""
+
+Write only the response draft text.
+`.trim();
+
+      const openaiRes = await axios.post(
+        "https://api.openai.com/v1/chat/completions",
+        {
+          model: "gpt-4o-mini",
+          temperature: 0.4,
+          messages: [
+            {
+              role: "system",
+              content:
+                "You write safe, professional, concise public review response drafts for restaurants.",
+            },
+            {
+              role: "user",
+              content: prompt,
+            },
+          ],
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          timeout: 45000,
+        }
+      );
+
+      draftResponse = String(
+        openaiRes?.data?.choices?.[0]?.message?.content || ""
+      ).trim();
+    } catch (err) {
+      console.error("buildReviewResponses OpenAI error:", err?.response?.data || err?.message || err);
+
+      draftResponse =
+        "Thank you for your feedback. We’re sorry to hear that your experience did not meet expectations. We take comments like yours seriously and are reviewing the concerns you raised so we can improve. We appreciate you bringing this to our attention and would welcome the opportunity to learn more from your experience offline.";
+    }
+
+items.push({
+  reviewId: review.reviewId,
+  source: review.source,
+  rating: review.rating,
+  text: review.text,
+  authorName: review.authorName || "Customer",
+  date: review.date || "",
+  dateMs: review.dateMs || null,
+  issueTags: review.issueTags || [],
+  draftResponse,
+  createdAtMs: now,
+});
+  }
+
+  const payload = {
+    restaurantCode,
+    restaurantDisplayName: restaurantDisplayName || restaurantCode || "",
+    generatedAtMs: now,
+    totalNegativeReviews: items.length,
+    items,
+  };
+
+  await db
+    .ref(`restaurants/${restaurantCode}/insights/reviewResponses/latest`)
+    .set(payload);
+
+  return payload;
+}
+
 /* --------------------------- HTTPS: getRestaurantReputationPhase1 --------------------------- */
 
 exports.getRestaurantReputationPhase1 = onRequest({ region: "us-central1" }, async (req, res) => {
@@ -3708,11 +3999,62 @@ async function runRestaurantReputationRefresh({
     console.error("Uber Eats RTDB read failed:", err.message || err);
   }
 
+
+
+const { normalizeOpenTableReviews } = require("./lib/normalizeOpenTableReviews");
+const { parseOpenTableUrl } = require("./lib/parseOpenTableUrl");
+
+// TEMP (we will switch to config later)
+const opentableUrl = safeTrim(cfg.opentableUrl || "");
+
+let openTableAiSummary = null;
+let openTableReviews = [];
+let openTableRatingsSummary = null;
+
+if (opentableUrl) {
+  const { rid, openTableDomain } = parseOpenTableUrl(opentableUrl);
+
+  if (!rid || !openTableDomain || !openTableDomain.includes("opentable")) {
+    console.warn("Skipping OpenTable: invalid opentableUrl", {
+      restaurantCode,
+      opentableUrl,
+      rid,
+      openTableDomain,
+    });
+  } else {
+    const page1 = await fetchSerpApiOpenTableReviews({
+      rid,
+      openTableDomain,
+      apiKey: apiKeySerp,
+      page: 1,
+    });
+
+    const page2 = await fetchSerpApiOpenTableReviews({
+      rid,
+      openTableDomain,
+      apiKey: apiKeySerp,
+      page: 2,
+    });
+
+    openTableAiSummary =
+      page1?.meta?.summary?.ai_summary ||
+      page2?.meta?.summary?.ai_summary ||
+      null;
+
+    const allOpenTableReviews = [
+      ...(page1?.reviews || []),
+      ...(page2?.reviews || []),
+    ];
+
+    openTableReviews = normalizeOpenTableReviews(allOpenTableReviews);
+  }
+}
   // ✅ FIX: now safe to merge
-  const phase2Reviews = [
-    ...(reviewsArr || []),
-    ...(uberEatsReviews || []),
-  ];
+const phase2Reviews = [
+  ...(reviewsArr || []),
+  ...(uberEatsReviews || []),
+  ...(openTableReviews || []),
+];
 
   const voiceComplaints = await getRecentVoiceComplaintSignals(restaurantCode, { windowDays: 30 });
 
@@ -3724,11 +4066,17 @@ async function runRestaurantReputationRefresh({
     text: r?.text || r?.originalText || "",
   }));
 
+  const openTableReviewItems = (openTableReviews || []).map((r) => ({
+    text: r?.text || "",
+  }));
+
   const complaintTrends = buildRestaurantComplaintTrends({
-    reviewItems: [
-      ...googleReviewItems,
-      ...uberEatsReviewItems,
-    ],
+  
+  reviewItems: [
+    ...googleReviewItems,
+    ...uberEatsReviewItems,
+    ...openTableReviewItems,
+  ],
     callItems: (voiceComplaints || []).map((c) => ({
       transcript:
         c?.transcript ||
@@ -3753,14 +4101,19 @@ async function runRestaurantReputationRefresh({
     storedReviews,
     voiceComplaintCount30d: voiceComplaints.length,
     uberEatsReviewCount: uberEatsReviews.length,
+    openTableReviewCount: openTableReviews.length,
+    openTableAiSummary,
+    openTableRatingsSummary,
     googleTotalRatings: placeSignals?.userRatingsTotal || null,
     googleRating: placeSignals?.rating || null,
     note: "Restaurant reputation refresh (manual or scheduled)",
   });
 
+
 const phase1Reviews = [
   ...(reviewsArr || []),
   ...(uberEatsReviews || []),
+  ...(openTableReviews || []),
 ];
 
 const phase1Report = await buildRestaurantReputationPhase1Report({
@@ -3794,6 +4147,20 @@ const phase1Report = await buildRestaurantReputationPhase1Report({
     ...phase2Report,
     snapshotDayKey: nowKey,
   });
+
+  // ------------------- NEW: Respond (Review Responses) -------------------
+const allReviewSources = [
+  ...(reviewsArr || []),
+  ...(uberEatsReviews || []),
+];
+
+await buildReviewResponses({
+  restaurantCode,
+  restaurantDisplayName,
+  reviews: allReviewSources,
+  apiKey: apiKeyOpenAI,
+  db,
+});
 
   await db.ref(`restaurants/${restaurantCode}/reputation/complaintTrends/latest`).set({
     ...complaintTrends,
@@ -4001,6 +4368,8 @@ function buildRestaurantComplaintTrends({
   return trends;
 }
 
+/* --------------------------- Create Restaurant OnBoarding --------------------------- */
+
 exports.createRestaurantOnboarding = onRequest(
   {
     region: "us-central1",
@@ -4119,6 +4488,7 @@ await firestore.collection("users").doc(userDocId).set(
     }
   }
 );
+/* --------------------------- Test UberEatsApifySearch --------------------------- */
 
 exports.testUberEatsApifyFetch = onRequest(async (req, res) => {
   try {
@@ -4300,7 +4670,7 @@ async function runUberEatsSyncJob() {
   return null;
 }
 
-/*----------run uber eats Sync Now Job ---------*/
+/* ----------run uber eats Sync Now Job ---------   */
 
 exports.runUberEatsSyncNow = onRequest(
   {
@@ -4756,6 +5126,151 @@ exports.runUberEatsIngestNow = onRequest(
     } catch (err) {
       console.error("runUberEatsIngestNow error:", err);
       return res.status(500).json({ ok: false, error: String(err?.message || err) });
+    }
+  }
+);
+
+/* -------------------- Deliverect Web Hook ------------------*/
+
+exports.deliverectReportingWebhook = onRequest(async (req, res) => {
+  try {
+    console.log("Deliverect webhook received");
+    console.log("Method:", req.method);
+    console.log("Headers:", req.headers);
+    console.log("Body:", req.body);
+
+    const payload = req.body || {};
+    const receivedAt = Date.now();
+
+    const storeId =
+      payload.storeId ||
+      payload.locationId ||
+      payload.store?.id ||
+      payload.location?.id ||
+      "unknown_store";
+
+    const mappingSnap = await admin
+      .database()
+      .ref(`storeMappings/${storeId}`)
+      .once("value");
+
+    const restaurantCode = mappingSnap.val() || "unknown_restaurant";
+
+    const record = {
+      receivedAt,
+      storeId,
+      restaurantCode,
+      headers: req.headers || {},
+      body: payload,
+    };
+
+    await admin
+      .database()
+      .ref(`restaurants/${restaurantCode}/deliverectRawOrders`)
+      .push(record);
+
+    return res.status(200).json({
+      ok: true,
+      message: "Webhook received and saved by restaurant",
+      storeId,
+      restaurantCode,
+    });
+  } catch (error) {
+    console.error("deliverectReportingWebhook error:", error);
+    return res.status(500).json({
+      ok: false,
+      error: error.message,
+    });
+  }
+});
+
+/* -------------------- test open table fetch  ------- */
+
+exports.testOpenTableFetch = onRequest(
+  { secrets: [SERPAPI_API_KEY] },
+  async (req, res) => {
+    try {
+      const restaurantCode = req.query.restaurantCode || "calwch";
+
+      const { normalizeOpenTableReviews } = require("./lib/normalizeOpenTableReviews");
+      const { parseOpenTableUrl } = require("./lib/parseOpenTableUrl");
+
+      const opentableUrl =
+        req.query.opentableUrl ||
+        "https://www.opentable.ca/r/est-restaurant-toronto";
+
+      const { rid, openTableDomain } = parseOpenTableUrl(opentableUrl);
+
+      if (!rid || !openTableDomain || !openTableDomain.includes("opentable")) {
+        return res.status(400).json({
+          ok: false,
+          error: "Invalid opentableUrl",
+          opentableUrl,
+          rid,
+          openTableDomain,
+        });
+      }
+
+      const page1 = await fetchSerpApiOpenTableReviews({
+        rid,
+        openTableDomain,
+        apiKey: SERPAPI_API_KEY.value(),
+        page: 1,
+      });
+
+      const page2 = await fetchSerpApiOpenTableReviews({
+        rid,
+        openTableDomain,
+        apiKey: SERPAPI_API_KEY.value(),
+        page: 2,
+      });
+
+      const allOpenTableReviews = [
+        ...(page1?.reviews || []),
+        ...(page2?.reviews || []),
+      ];
+
+      const normalized = normalizeOpenTableReviews(allOpenTableReviews);
+
+      return res.json({
+        ok: true,
+        restaurantCode,
+        opentableUrl,
+
+        rid,
+        openTableDomain,
+
+        count: Array.isArray(allOpenTableReviews)
+          ? allOpenTableReviews.length
+          : 0,
+        sample: Array.isArray(allOpenTableReviews)
+          ? allOpenTableReviews.slice(0, 3)
+          : [],
+
+        normalizedCount: Array.isArray(normalized) ? normalized.length : 0,
+        normalizedSample: Array.isArray(normalized)
+          ? normalized.slice(0, 3)
+          : [],
+
+        meta: {
+          page1: page1?.meta || null,
+          page2: page2?.meta || null,
+        },
+
+        rawKeys: page1?.raw ? Object.keys(page1.raw) : [],
+        rawSearchInformation: page1?.raw?.search_information || null,
+        rawReviewsSummary: page1?.raw?.reviews_summary || null,
+        rawPagination:
+          page1?.raw?.pagination || page1?.raw?.serpapi_pagination || null,
+
+        error: page1?.error || page2?.error || null,
+      });
+    } catch (err) {
+      console.error("testOpenTableFetch error:", err);
+      return res.status(500).json({
+        ok: false,
+        error: err?.message || "Unknown error",
+      });
     }
   }
 );

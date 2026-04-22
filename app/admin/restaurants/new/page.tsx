@@ -17,6 +17,7 @@ export default function NewRestaurantPage() {
   const [assistantId, setAssistantId] = useState('');
   const [timeZone, setTimeZone] = useState('');
   const [googlePlaceId, setGooglePlaceId] = useState('');
+  const [opentableUrl, setOpentableUrl] = useState('');
 
   const [planMonthlyCalls, setPlanMonthlyCalls] = useState('');
   const [planMonthlyFee, setPlanMonthlyFee] = useState('');
@@ -91,6 +92,7 @@ export default function NewRestaurantPage() {
             assistantId: assistantId.trim(),
             timeZone: timeZone.trim(),
             googlePlaceId: googlePlaceId.trim(),
+            opentableUrl: opentableUrl.trim(),
             userDocId: normalizedRestaurantCode,
 
             planMonthlyCalls,
@@ -230,6 +232,19 @@ export default function NewRestaurantPage() {
                   required
                 />
               </div>
+
+              <div className="md:col-span-2">
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  OpenTable URL
+                </label>
+                <input
+                  type="text"
+                  value={opentableUrl}
+                  onChange={(e) => setOpentableUrl(e.target.value)}
+                  placeholder="example: https://www.opentable.ca/r/joey-sherway-toronto"
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-500"
+                />
+              </div>
             </div>
           </div>
 
@@ -261,7 +276,7 @@ export default function NewRestaurantPage() {
                   step="0.01"
                   value={planMonthlyFee}
                   onChange={(e) => setPlanMonthlyFee(e.target.value)}
-                  placeholder="example: 99"
+                  placeholder="example: 99.99"
                   className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-500"
                 />
               </div>
@@ -274,7 +289,7 @@ export default function NewRestaurantPage() {
                   type="text"
                   value={planName}
                   onChange={(e) => setPlanName(e.target.value)}
-                  placeholder="example: AVAIA Connects"
+                  placeholder="example: Starter"
                   className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-500"
                 />
               </div>
@@ -288,12 +303,12 @@ export default function NewRestaurantPage() {
                   step="0.01"
                   value={planOverageFee}
                   onChange={(e) => setPlanOverageFee(e.target.value)}
-                  placeholder="example: 0.8"
+                  placeholder="example: 0.50"
                   className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-500"
                 />
               </div>
 
-              <div className="md:col-span-2">
+              <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700">
                   Plan Start Month
                 </label>
@@ -301,7 +316,7 @@ export default function NewRestaurantPage() {
                   type="text"
                   value={planStartMonth}
                   onChange={(e) => setPlanStartMonth(e.target.value)}
-                  placeholder="example: August 1, 2025 at 12:00:00 AM UTC-4"
+                  placeholder="example: 2026-04"
                   className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-500"
                 />
               </div>
@@ -310,7 +325,7 @@ export default function NewRestaurantPage() {
 
           <div>
             <div className="mb-4 text-lg font-semibold text-slate-900">
-              Account / Platform
+              Platform / Contact
             </div>
 
             <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
@@ -322,7 +337,7 @@ export default function NewRestaurantPage() {
                   type="text"
                   value={apifyStoreUrl}
                   onChange={(e) => setApifyStoreUrl(e.target.value)}
-                  placeholder="example: https://www.ubereats.com/..."
+                  placeholder="example: https://www.ubereats.com/ca/store/..."
                   className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-500"
                 />
               </div>
@@ -335,7 +350,7 @@ export default function NewRestaurantPage() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="example: joe@heyjoepapa.com"
+                  placeholder="example: owner@restaurant.com"
                   className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-500"
                 />
               </div>
@@ -348,7 +363,7 @@ export default function NewRestaurantPage() {
                   type="text"
                   value={contactPhoneNumber}
                   onChange={(e) => setContactPhoneNumber(e.target.value)}
-                  placeholder="example: +16464497700"
+                  placeholder="example: 4165551234"
                   className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-500"
                 />
               </div>

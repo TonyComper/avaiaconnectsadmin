@@ -1,0 +1,25 @@
+function parseOpenTableUrl(opentableUrl = "") {
+  try {
+    const u = new URL(opentableUrl);
+
+    const host = (u.hostname || "")
+      .replace(/^www\./, "")
+      .toLowerCase();
+
+    const path = (u.pathname || "")
+      .replace(/^\/+/, "")
+      .replace(/\/+$/, "");
+
+    return {
+      openTableDomain: host,
+      rid: path,
+    };
+  } catch (err) {
+    return {
+      openTableDomain: "",
+      rid: "",
+    };
+  }
+}
+
+module.exports = { parseOpenTableUrl };

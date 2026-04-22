@@ -11,6 +11,7 @@ import {
   Timestamp,
   where,
 } from "firebase/firestore";
+import { get, getDatabase, ref as dbRef } from "firebase/database";
 import { app as firebaseApp } from "@/lib/firebase";
 import dynamic from "next/dynamic";
 import { useAuth } from "@/components/AuthProvider";
@@ -53,13 +54,34 @@ type CallRow = {
   transcript?: string | null;
 };
 
+type ReviewResponseItem = {
+  reviewId: string;
+  source?: string | null;
+  rating?: number | null;
+  text?: string | null;
+  authorName?: string | null;
+  date?: string | null;
+  issueTags?: string[];
+  draftResponse?: string | null;
+  createdAtMs?: number | null;
+};
+
+type ReviewResponsesPayload = {
+  restaurantCode?: string;
+  restaurantDisplayName?: string;
+  generatedAtMs?: number;
+  totalNegativeReviews?: number;
+  items?: ReviewResponseItem[];
+};
+
 type ViewMode =
   | "log"
   | "hourly"
   | "billing"
   | "invoice"
   | "restaurantPhase1"
-  | "restaurantPhase2";
+  | "restaurantPhase2"
+  | "respond";
 
 // ----------------- Local-time date helpers -----------------
 function startOfDay(d = new Date()) {
@@ -176,6 +198,12 @@ function fmtTime(ts?: Timestamp | null) {
 }
 function fmtMonth(d: Date) {
   return d.toLocaleString(undefined, { month: "long", year: "numeric" });
+}
+function fmtDateFromString(value?: string | null) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return String(value);
+  return d.toLocaleDateString();
 }
 
 // Robust parser for legacy "Plan Start Month" strings
@@ -352,6 +380,9 @@ export default function AssistantDashboardVapi({
   const [restaurantComplaintTrends, setRestaurantComplaintTrends] =
     useState<any>(null);
   const [restaurantAlerts, setRestaurantAlerts] = useState<any[]>([]);
+  const [reviewResponses, setReviewResponses] =
+    useState<ReviewResponsesPayload | null>(null);
+  const [copiedReviewId, setCopiedReviewId] = useState<string | null>(null);
 
   // Resolve the date range (local time)
   const { start, end } = useMemo(() => {
@@ -388,6 +419,13 @@ export default function AssistantDashboardVapi({
       const fresh = await loadBillingPlan();
       if (view === "invoice") {
         await loadInvoiceHistory(fresh ?? undefined);
+      }
+      if (
+        view === "restaurantPhase1" ||
+        view === "restaurantPhase2" ||
+        view === "respond"
+      ) {
+        await loadRestaurantReputation();
       }
     }
   }
@@ -712,18 +750,27 @@ export default function AssistantDashboardVapi({
     setRestaurantPhase2(null);
     setRestaurantComplaintTrends(null);
     setRestaurantAlerts([]);
+    setReviewResponses(null);
 
     try {
       const restaurantCode = authCtx?.profile?.restaurantCode || null;
 
       if (!restaurantCode) return;
 
-      const [phase1Res, phase2Res] = await Promise.all([
+      const rtdb = getDatabase(firebaseApp);
+
+      const [phase1Res, phase2Res, reviewResponsesSnap] = await Promise.all([
         fetch(
           `https://us-central1-askaida-dashboard.cloudfunctions.net/getRestaurantReputationPhase1?restaurantCode=${restaurantCode}`
         ),
         fetch(
           `https://us-central1-askaida-dashboard.cloudfunctions.net/getRestaurantReputationPhase2?restaurantCode=${restaurantCode}`
+        ),
+        get(
+          dbRef(
+            rtdb,
+            `restaurants/${restaurantCode}/insights/reviewResponses/latest`
+          )
         ),
       ]);
 
@@ -750,12 +797,23 @@ export default function AssistantDashboardVapi({
 
       setRestaurantComplaintTrends(phase2Json?.data?.complaintTrends || null);
       setRestaurantAlerts(phase2Json?.data?.alerts || []);
+      setReviewResponses((reviewResponsesSnap.val() as ReviewResponsesPayload) || null);
     } catch (e) {
       setRestaurantRepError(
         e instanceof Error ? e.message : "Failed to load restaurant reputation."
       );
     } finally {
       setRestaurantRepLoading(false);
+    }
+  }
+
+  async function handleCopyResponse(reviewId: string, draftResponse?: string | null) {
+    try {
+      await navigator.clipboard.writeText(String(draftResponse || ""));
+      setCopiedReviewId(reviewId);
+      window.setTimeout(() => setCopiedReviewId(null), 2000);
+    } catch {
+      setCopiedReviewId(null);
     }
   }
 
@@ -767,7 +825,11 @@ export default function AssistantDashboardVapi({
       })();
     }
 
-    if (view === "restaurantPhase1" || view === "restaurantPhase2") {
+    if (
+      view === "restaurantPhase1" ||
+      view === "restaurantPhase2" ||
+      view === "respond"
+    ) {
       void loadRestaurantReputation();
     }
   }, [view, assistantId]);
@@ -883,12 +945,13 @@ export default function AssistantDashboardVapi({
             <option value="restaurantPhase2">
               Restaurant Reputation Phase 2
             </option>
+            <option value="respond">Respond</option>
           </select>
         </div>
       </div>
 
       {/* KPIs */}
-      {view !== "billing" && view !== "invoice" && (
+      {view !== "billing" && view !== "invoice" && view !== "respond" && (
         <>
           <div className="mb-2 text-gray-500 text-sm">
             <span className="opacity-80 font-medium">Metrics</span> —{" "}
@@ -1655,6 +1718,117 @@ export default function AssistantDashboardVapi({
                   reviews analyzed: {restaurantMeta?.totalTextReviews ?? "—"}
                 </div>
               )}
+            </div>
+          )}
+        </div>
+      ) : view === "respond" ? (
+        <div className="rounded-2xl bg-white/95 backdrop-blur shadow-sm border border-slate-200 p-5 space-y-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="font-medium text-lg">Respond</div>
+              <div className="text-sm text-gray-500">
+                Draft responses for negative customer reviews
+              </div>
+            </div>
+
+            <div className="text-sm text-slate-500">
+              {reviewResponses?.totalNegativeReviews ?? 0} negative review
+              {(reviewResponses?.totalNegativeReviews ?? 0) === 1 ? "" : "s"}
+            </div>
+          </div>
+
+          {restaurantRepLoading ? (
+            <div className="text-gray-500">Loading response drafts…</div>
+          ) : restaurantRepError ? (
+            <div className="text-red-600">{restaurantRepError}</div>
+          ) : !reviewResponses?.items?.length ? (
+            <div className="rounded-xl border bg-slate-50 p-4 text-sm text-slate-500">
+              No response drafts available yet.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {reviewResponses.items.map((item, i) => (
+                <div
+                  key={item.reviewId || `review-${i}`}
+                  className="rounded-2xl border border-slate-200 bg-white shadow-sm p-5 space-y-4"
+                >
+                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center rounded-full bg-red-50 text-red-700 px-2.5 py-1 text-xs font-semibold border border-red-100">
+                          {item.rating ?? "—"}-Star Review
+                        </span>
+                        <div className="text-sm font-medium text-slate-800">
+                            {item.authorName || "Customer"}
+                        </div>
+                        {item.source ? (
+                          <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-700 px-2.5 py-1 text-xs font-medium capitalize">
+                            {item.source}
+                          </span>
+                        ) : null}
+                        <span className="text-xs text-slate-500">
+                          Review Date: {item.date ? fmtDateFromString(item.date) : "—"}
+                        </span>
+                      </div>
+
+                      {Array.isArray(item.issueTags) && item.issueTags.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {item.issueTags.map((tag) => (
+                            <span
+                              key={tag}
+                              className="inline-flex items-center rounded-full bg-amber-50 text-amber-800 px-2.5 py-1 text-xs font-medium border border-amber-100"
+                            >
+                              {String(tag).replace(/_/g, " ")}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() =>
+                          handleCopyResponse(
+                            item.reviewId,
+                            item.draftResponse || ""
+                          )
+                        }
+                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                      >
+                        {copiedReviewId === item.reviewId
+                          ? "Copied"
+                          : "Copy Response"}
+                      </button>
+
+                      <button
+                        disabled
+                        className="rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-sm font-medium text-slate-400 cursor-not-allowed"
+                        title="Regenerate will be added later"
+                      >
+                        Regenerate
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
+                      Customer Review
+                    </div>
+                    <div className="text-sm text-slate-700 leading-6 whitespace-pre-wrap">
+                      {item.text || "—"}
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl bg-white border border-slate-200 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
+                      Draft Response
+                    </div>
+                    <div className="text-sm text-slate-800 leading-6 whitespace-pre-wrap">
+                      {item.draftResponse || "—"}
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>

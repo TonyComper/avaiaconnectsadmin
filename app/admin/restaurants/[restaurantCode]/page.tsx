@@ -25,6 +25,7 @@ export default function RestaurantDetailPage() {
 
   const [assistantId, setAssistantId] = useState('');
   const [timeZone, setTimeZone] = useState('');
+  const [opentableUrl, setOpentableUrl] = useState('');
 
   const [planMonthlyCalls, setPlanMonthlyCalls] = useState('');
   const [planMonthlyFee, setPlanMonthlyFee] = useState('');
@@ -103,9 +104,11 @@ export default function RestaurantDetailPage() {
         setData(merged);
 
         const config = rtdbData?.config || {};
+        const reputation = config?.reputation || {};
 
         setAssistantId(String(userData?.assistantId || config?.assistantId || ''));
         setTimeZone(String(config?.timeZone || ''));
+        setOpentableUrl(String(reputation?.opentableUrl || ''));
 
         setPlanMonthlyCalls(
           userData?.planMonthlyCalls != null ? String(userData.planMonthlyCalls) : ''
@@ -203,9 +206,13 @@ export default function RestaurantDetailPage() {
     setError('');
 
     try {
-      const rtdbUpdates = {
+      const rtdbConfigUpdates = {
         assistantId: assistantId.trim(),
         timeZone: timeZone.trim(),
+      };
+
+      const rtdbReputationUpdates = {
+        opentableUrl: opentableUrl.trim(),
       };
 
       const firestoreUpdates = {
@@ -223,7 +230,11 @@ export default function RestaurantDetailPage() {
       };
 
       await Promise.all([
-        update(ref(db, `restaurants/${restaurantCode}/config`), rtdbUpdates),
+        update(ref(db, `restaurants/${restaurantCode}/config`), rtdbConfigUpdates),
+        update(
+          ref(db, `restaurants/${restaurantCode}/config/reputation`),
+          rtdbReputationUpdates
+        ),
         setDoc(doc(firestore, 'users', restaurantCode), firestoreUpdates, {
           merge: true,
         }),
@@ -326,6 +337,19 @@ export default function RestaurantDetailPage() {
                 />
               </div>
 
+              <div className="md:col-span-2">
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  OpenTable URL
+                </label>
+                <input
+                  type="text"
+                  value={opentableUrl}
+                  onChange={(e) => setOpentableUrl(e.target.value)}
+                  placeholder="example: https://www.opentable.ca/r/joey-sherway-toronto"
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-500"
+                />
+              </div>
+
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700">
                   Plan Monthly Calls
@@ -376,7 +400,7 @@ export default function RestaurantDetailPage() {
                 />
               </div>
 
-              <div className="md:col-span-2">
+              <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700">
                   Plan Start Month
                 </label>
@@ -436,75 +460,94 @@ export default function RestaurantDetailPage() {
                 />
               </div>
             </div>
+          </div>
 
-            {error ? (
-              <div className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">
-                {error}
-              </div>
-            ) : null}
-
-            <div className="mt-6">
+          <div className="rounded-2xl border bg-white p-6 shadow-sm">
+            <div className="mb-4 flex items-center justify-between">
+              <div className="text-lg font-semibold">Current Data</div>
               <button
-                type="submit"
-                disabled={saving}
-                className="rounded-xl bg-emerald-600 px-5 py-3 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-60"
+                type="button"
+                onClick={() => setShowRaw((v) => !v)}
+                className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
-                {saving ? 'Saving…' : 'Save Changes'}
+                {showRaw ? 'Hide Raw' : 'Show Raw'}
               </button>
             </div>
+
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+              <div className="rounded-xl bg-slate-50 p-4">
+                <div className="mb-2 text-sm font-semibold text-slate-700">RTDB Config</div>
+                <div className="space-y-1 text-sm text-slate-600">
+                  <div>
+                    <span className="font-medium">Assistant ID:</span> {String(config?.assistantId || '')}
+                  </div>
+                  <div>
+                    <span className="font-medium">Time Zone:</span> {String(config?.timeZone || '')}
+                  </div>
+                  <div>
+                    <span className="font-medium">Google Place ID:</span>{' '}
+                    {String(reputation?.googlePlaceId || '')}
+                  </div>
+                  <div>
+                    <span className="font-medium">Uber Eats Store URL:</span>{' '}
+                    {String(reputation?.uberEatsStoreUrl || '')}
+                  </div>
+                  <div>
+                    <span className="font-medium">OpenTable URL:</span>{' '}
+                    {String(reputation?.opentableUrl || '')}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-slate-50 p-4">
+                <div className="mb-2 text-sm font-semibold text-slate-700">Firestore User</div>
+                <div className="space-y-1 text-sm text-slate-600">
+                  <div>
+                    <span className="font-medium">Email:</span> {String(userData?.email || '')}
+                  </div>
+                  <div>
+                    <span className="font-medium">Name:</span> {String(userData?.name || '')}
+                  </div>
+                  <div>
+                    <span className="font-medium">Phone:</span>{' '}
+                    {String(userData?.contactPhoneNumber || '')}
+                  </div>
+                  <div>
+                    <span className="font-medium">Plan Name:</span> {String(userData?.planName || '')}
+                  </div>
+                  <div>
+                    <span className="font-medium">Plan Start Month:</span>{' '}
+                    {String(userData?.planStartMonth || '')}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {showRaw ? (
+              <pre className="mt-6 overflow-x-auto rounded-xl bg-slate-950 p-4 text-xs text-slate-100">
+                {JSON.stringify(data, null, 2)}
+              </pre>
+            ) : null}
           </div>
-        </form>
 
-        <div className="rounded-2xl border bg-white p-6 shadow-sm">
-          <div className="mb-4 text-lg font-semibold">Current Config Snapshot</div>
-
-          <div className="grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
-            <div>
-              <div className="text-slate-500">Restaurant Name</div>
-              <div className="font-medium">
-                {userData?.restaurantName || reputation?.restaurantDisplayName || '—'}
-              </div>
-            </div>
-
-            <div>
-              <div className="text-slate-500">Google Place ID</div>
-              <div className="font-medium break-all">
-                {reputation?.googlePlaceId || '—'}
-              </div>
-            </div>
-
-            <div>
-              <div className="text-slate-500">Serp Data ID</div>
-              <div className="font-medium break-all">
-                {reputation?.serpDataId || '—'}
-              </div>
-            </div>
-
-            <div>
-              <div className="text-slate-500">Restaurant Code</div>
-              <div className="font-medium">{restaurantCode}</div>
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-6 shadow-sm">
-          <div className="mb-4 flex items-center justify-between">
-            <div className="text-lg font-semibold">Developer Tools</div>
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="submit"
+              disabled={saving}
+              className="rounded-xl bg-emerald-600 px-4 py-3 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-60"
+            >
+              {saving ? 'Saving…' : 'Save Changes'}
+            </button>
 
             <button
-              onClick={() => setShowRaw(!showRaw)}
-              className="text-sm text-blue-600 hover:underline"
+              type="button"
+              onClick={() => router.push('/admin/restaurants')}
+              className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
-              {showRaw ? 'Hide Raw Data' : 'Show Raw Data'}
+              Back to Restaurants
             </button>
           </div>
-
-          {showRaw && (
-            <pre className="overflow-auto rounded-xl bg-slate-100 p-4 text-xs">
-              {JSON.stringify(data, null, 2)}
-            </pre>
-          )}
-        </div>
+        </form>
       </div>
     </div>
   );
