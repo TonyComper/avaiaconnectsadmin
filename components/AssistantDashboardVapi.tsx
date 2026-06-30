@@ -1963,18 +1963,18 @@ export default function AssistantDashboardVapi({
                     <span className="text-gray-500 ml-2">To:</span>{" "}
                     {d.to || "—"}
                   </div>
-                  {d.recordingUrl && (
-                    <div>
-                      <a
-                        className="underline"
-                        href={d.recordingUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Recording
-                      </a>
-                    </div>
-                  )}
+                  
+                  <div>
+                <a
+                className="underline"
+                href={`/api/vapi/recording?callId=${encodeURIComponent(d.id)}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Recording
+                </a>
+              </div>
+
                   {d.transcript && (
                     <div>
                       <div className="text-gray-500 mb-1">Transcript</div>
