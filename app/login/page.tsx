@@ -5,7 +5,6 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 
-// Firebase auth (fallback + password reset)
 import {
   getAuth,
   signInWithEmailAndPassword,
@@ -15,16 +14,12 @@ import { app as firebaseApp } from "@/lib/firebase";
 
 export default function LoginPage() {
   const router = useRouter();
-
-  // Flexible shim so we don't depend on the exact AuthCtx typing
   const authCtx = useAuth() as any;
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
-  // UX message after requesting a password reset
   const [resetMsg, setResetMsg] = useState<string | null>(null);
   const [resetLoading, setResetLoading] = useState(false);
 
@@ -35,7 +30,6 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      // Try your provider first; fallback to Firebase
       if (typeof authCtx?.signInApp === "function") {
         await authCtx.signInApp(email, password);
       } else if (typeof authCtx?.login === "function") {
@@ -46,6 +40,7 @@ export default function LoginPage() {
         const auth = getAuth(firebaseApp);
         await signInWithEmailAndPassword(auth, email, password);
       }
+
       router.push("/dashboard");
     } catch (err: any) {
       const msg =
@@ -63,7 +58,6 @@ export default function LoginPage() {
     setError(null);
     setResetMsg(null);
 
-    // Require an email to send reset link
     if (!email) {
       setError("Enter your email above, then click “Forgot password?”");
       return;
@@ -77,7 +71,6 @@ export default function LoginPage() {
         "If an account exists for that email, a reset link has been sent."
       );
     } catch (err: any) {
-      // Common Firebase error codes: auth/invalid-email, auth/user-not-found
       setError("Could not send reset email. Please check the address.");
     } finally {
       setResetLoading(false);
@@ -85,20 +78,29 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col justify-center items-center bg-gray-50">
-      <div className="w-full max-w-md bg-white p-6 rounded-2xl shadow">
+    <div className="min-h-screen flex flex-col justify-center items-center bg-[#f5f5f5] px-4">
+      <div className="w-full max-w-md bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
         {/* Logo */}
         <div className="flex flex-col items-center mb-6">
-          <img src="/logo1.png" alt="AVAI Logo" className="h-48 w-auto" />
+          <img src="/logo1.png" alt="HeySue Logo" className="h-36 w-auto" />
+        </div>
+
+        {/* Divider */}
+        <div className="flex items-center gap-4 mb-6">
+          <div className="h-px bg-[#f04423] flex-1 opacity-40" />
+          <div className="text-[#f04423] text-xl">🍴</div>
+          <div className="h-px bg-[#f04423] flex-1 opacity-40" />
         </div>
 
         {/* Heading */}
-        <h1 className="text-2xl font-bold text-center mb-4">Log in</h1>
+        <h1 className="text-3xl font-bold text-center mb-6 text-black">
+          Log in
+        </h1>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-5">
           <div>
-            <label className="block text-sm font-medium text-gray-700">
+            <label className="block text-sm font-semibold text-black mb-2">
               Email
             </label>
             <input
@@ -106,13 +108,14 @@ export default function LoginPage() {
               placeholder="owner@restaurant.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full border rounded-xl p-3 mt-1"
+              className="w-full border-2 border-[#f04423] rounded-xl p-3 bg-white text-black focus:outline-none focus:ring-2 focus:ring-[#f04423]/30"
               required
               autoComplete="email"
             />
           </div>
+
           <div>
-            <label className="block text-sm font-medium text-gray-700">
+            <label className="block text-sm font-semibold text-black mb-2">
               Password
             </label>
             <input
@@ -120,7 +123,7 @@ export default function LoginPage() {
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full border rounded-xl p-3 mt-1"
+              className="w-full border-2 border-[#f04423] rounded-xl p-3 bg-white text-black focus:outline-none focus:ring-2 focus:ring-[#f04423]/30"
               required
               autoComplete="current-password"
             />
@@ -132,23 +135,27 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-70"
+            className="w-full py-3 rounded-xl bg-[#f04423] text-white font-bold hover:bg-[#d93618] disabled:opacity-70 transition"
           >
             {loading ? "Signing in…" : "Log in"}
           </button>
         </form>
 
-        {/* Footer actions (Create one removed) */}
-        <div className="mt-4 flex justify-start text-sm">
+        {/* Forgot password */}
+        <div className="mt-5">
           <button
             onClick={handleForgotPassword}
             disabled={resetLoading}
-            className="text-blue-600 hover:underline disabled:opacity-60"
+            className="w-full py-3 rounded-xl border-2 border-[#f04423] text-[#f04423] font-semibold hover:bg-[#fff3ef] disabled:opacity-60 transition"
             type="button"
           >
             {resetLoading ? "Sending…" : "Forgot password?"}
           </button>
         </div>
+
+        <p className="mt-6 text-center text-xs text-gray-500">
+          Secure login • Your data is protected
+        </p>
       </div>
     </div>
   );
