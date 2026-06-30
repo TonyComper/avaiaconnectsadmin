@@ -1964,16 +1964,24 @@ export default function AssistantDashboardVapi({
                     {d.to || "—"}
                   </div>
                   
-                  <div>
-                <a
-                className="underline"
-                href={`/api/vapi/recording?callId=${encodeURIComponent(d.id)}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Recording
-                </a>
-              </div>
+<div className="flex gap-4 items-center">
+  <a
+    className="underline"
+    href={`/api/vapi/recording?callId=${encodeURIComponent(d.id)}`}
+    target="_blank"
+    rel="noreferrer"
+  >
+    Play Recording
+  </a>
+
+  <a
+    className="underline"
+    href={`/api/vapi/recording?callId=${encodeURIComponent(d.id)}`}
+    download={`heysue-call-${d.id}.wav`}
+  >
+    Download Recording
+  </a>
+</div>
 
                   {d.transcript && (
                     <div>
