@@ -1,9 +1,10 @@
-/** @type {import('next').NextConfig} */
-const nextConfig = {
-  eslint: {
-    // ⚠️ Warning: this allows builds with lint errors
-    ignoreDuringBuilds: true,
+import type { NextConfig } from 'next';
+import path from 'path';
+
+const nextConfig: NextConfig = {
+  turbopack: {
+    root: path.resolve(__dirname),
   },
 };
 
-module.exports = nextConfig;
+export default nextConfig;

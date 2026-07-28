@@ -123,6 +123,20 @@ export default function AdminHomePage() {
               Create a new restaurant record and run onboarding from the admin dashboard.
             </div>
           </Link>
+
+          <Link
+  href="/admin/gateways"
+  className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:bg-slate-50"
+>
+  <div className="text-lg font-semibold text-slate-900">
+    Gateways
+  </div>
+
+  <div className="mt-2 text-sm text-slate-500">
+    Assign gateway devices, discover printers, send test prints, and activate automatic kitchen printing.
+  </div>
+</Link>
+
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
